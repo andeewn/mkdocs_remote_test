@@ -1,0 +1,70 @@
+name: Deploy MkDocs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  repository_dispatch:
+    types: [mkdocs-update]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@v4
+
+      - name: Clone private repo
+        run: |
+          git clone --depth 1 https://x-access-token:${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/andeewn/mkdocs_test.git _private
+
+      - name: Copy docs from private repo
+        run: |
+          # Overwrite docs/ and mkdocs.yml with the private repo versions
+          rm -rf docs/
+          cp -r _private/docs/ docs/
+          if [ -f _private/mkdocs.yml ]; then
+            cp _private/mkdocs.yml mkdocs.yml
+          fi
+          # Also copy requirements.txt if the private repo has one
+          if [ -f _private/requirements.txt ]; then
+            cp _private/requirements.txt requirements.txt
+          fi
+          # Clean up
+          rm -rf _private
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build MkDocs
+        run: mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
